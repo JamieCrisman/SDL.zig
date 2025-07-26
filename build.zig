@@ -21,11 +21,13 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_tests) {
         const lib_test = b.addTest(.{
-            .root_source_file = .{ .cwd_relative = "src/wrapper/sdl.zig" },
-            .target = if (target.result.os.tag == .windows)
-                b.resolveTargetQuery(.{ .abi = target.result.abi })
-            else
-                null,
+            .root_module = b.createModule(.{
+                .root_source_file = .{ .cwd_relative = "src/wrapper/sdl.zig" },
+                .target = if (target.result.os.tag == .windows)
+                    b.resolveTargetQuery(.{ .abi = target.result.abi })
+                else
+                    null,
+            }),
         });
         lib_test.root_module.addImport("sdl-native", sdk.getNativeModule());
         lib_test.linkSystemLibrary("sdl2_image");
@@ -53,9 +55,11 @@ pub fn build(b: *std.Build) !void {
 
     const demo_wrapper = b.addExecutable(.{
         .name = "demo-wrapper",
-        .root_source_file = .{ .cwd_relative = "examples/wrapper.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = "examples/wrapper.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sdk.link(demo_wrapper, sdl_linkage, .SDL2);
     demo_wrapper.root_module.addImport("sdl2", sdk.getWrapperModule());
@@ -63,9 +67,11 @@ pub fn build(b: *std.Build) !void {
 
     const demo_wrapper_image = b.addExecutable(.{
         .name = "demo-wrapper-image",
-        .root_source_file = .{ .cwd_relative = "examples/wrapper-image.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = "examples/wrapper-image.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sdk.link(demo_wrapper_image, sdl_linkage, .SDL2);
     demo_wrapper_image.root_module.addImport("sdl2", sdk.getWrapperModule());
@@ -81,9 +87,11 @@ pub fn build(b: *std.Build) !void {
 
     const demo_native = b.addExecutable(.{
         .name = "demo-native",
-        .root_source_file = .{ .cwd_relative = "examples/native.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = "examples/native.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sdk.link(demo_native, sdl_linkage, .SDL2);
     demo_native.root_module.addImport("sdl2", sdk.getNativeModule());
@@ -231,10 +239,11 @@ pub fn getWrapperModuleVulkan(sdk: *Sdk, vulkan: *Build.Module) *Build.Module {
 }
 
 fn linkLinuxCross(sdk: *Sdk, exe: *Compile) !void {
-    const build_linux_sdl_stub = sdk.builder.addSharedLibrary(.{
+    const build_linux_sdl_stub = sdk.builder.addLibrary(.{
         .name = "SDL2",
-        .target = exe.root_module.resolved_target.?,
-        .optimize = exe.root_module.optimize.?,
+        .root_module = exe.root_module, // ?
+        // .target = exe.root_module.resolved_target.?,
+        // .optimize = exe.root_module.optimize.?,
     });
     build_linux_sdl_stub.addAssemblyFile(sdk.prepare_sources.getStubFile());
     exe.linkLibrary(build_linux_sdl_stub);
@@ -401,7 +410,6 @@ const GetPathsError = error{
 };
 
 fn printPathsErrorMessage(sdk: *Sdk, config_path: []const u8, target_local: std.Build.ResolvedTarget, err: GetPathsError, library: Library) !void {
-    const writer = std.io.getStdErr().writer();
     const target_name = try tripleName(sdk.builder.allocator, target_local);
     defer sdk.builder.allocator.free(target_name);
 
@@ -417,42 +425,42 @@ fn printPathsErrorMessage(sdk: *Sdk, config_path: []const u8, target_local: std.
 
     switch (err) {
         GetPathsError.FileNotFound => {
-            try writer.print("Could not auto-detect {s} sdk configuration. Please provide {s} with the following contents filled out:\n", .{ lib_name, config_path });
-            try writer.print("{{\n  \"{s}\": {{\n", .{target_name});
-            try writer.writeAll(
+            std.debug.print("Could not auto-detect {s} sdk configuration. Please provide {s} with the following contents filled out:\n", .{ lib_name, config_path });
+            std.debug.print("{{\n  \"{s}\": {{\n", .{target_name});
+            std.debug.print(
                 \\    "include": "<path to sdk>/include",
                 \\    "libs": "<path to sdk>/lib",
                 \\    "bin": "<path to sdk>/bin"
                 \\  }
                 \\}
                 \\
-            );
-            try writer.print(
+            , .{});
+            std.debug.print(
                 \\
                 \\You can obtain a {s} sdk for Windows from {s}
                 \\
             , .{ lib_name, download_url });
         },
         GetPathsError.MissingTarget => {
-            try writer.print("{s} is missing a SDK definition for {s}. Please add the following section to the file and fill the paths:\n", .{ config_path, target_name });
-            try writer.print("  \"{s}\": {{\n", .{target_name});
-            try writer.writeAll(
+            std.debug.print("{s} is missing a SDK definition for {s}. Please add the following section to the file and fill the paths:\n", .{ config_path, target_name });
+            std.debug.print("  \"{s}\": {{\n", .{target_name});
+            std.debug.print(
                 \\  "include": "<path to sdk>/include",
                 \\  "libs": "<path to sdk>/lib",
                 \\  "bin": "<path to sdk>/bin"
                 \\}
-            );
-            try writer.print(
+            , .{});
+            std.debug.print(
                 \\
                 \\You can obtain a {s} sdk for Windows from {s}
                 \\
             , .{ lib_name, download_url });
         },
         GetPathsError.InvalidJson => {
-            try writer.print("{s} contains invalid JSON. Please fix that file!\n", .{config_path});
+            std.debug.print("{s} contains invalid JSON. Please fix that file!\n", .{config_path});
         },
         GetPathsError.InvalidTarget => {
-            try writer.print("{s} contains an invalid zig triple. Please fix that file!\n", .{config_path});
+            std.debug.print("{s} contains an invalid zig triple. Please fix that file!\n", .{config_path});
         },
     }
 }
@@ -557,7 +565,7 @@ const PrepareStubSourceStep = struct {
         var file = try dirpath.dir.createFile("sdl.S", .{});
         defer file.close();
 
-        var writer = file.writer();
+        var writer = file.deprecatedWriter();
         try writer.writeAll(".text\n");
 
         var iter = std.mem.splitScalar(u8, sdl2_symbol_definitions, '\n');
@@ -628,7 +636,7 @@ const CacheBuilder = struct {
                 .{
                     self.builder.cache_root.path.?,
                     subdir,
-                    std.fmt.fmtSliceHexLower(&hash),
+                    std.fmt.hex(&hash),
                 },
             )
         else
@@ -637,7 +645,7 @@ const CacheBuilder = struct {
                 "{s}/o/{}",
                 .{
                     self.builder.cache_root.path.?,
-                    std.fmt.fmtSliceHexLower(&hash),
+                    std.fmt.hex(&hash),
                 },
             );
 
