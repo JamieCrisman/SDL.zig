@@ -21,11 +21,13 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_tests) {
         const lib_test = b.addTest(.{
-            .root_source_file = .{ .cwd_relative = "src/wrapper/sdl.zig" },
-            .target = if (target.result.os.tag == .windows)
-                b.resolveTargetQuery(.{ .abi = target.result.abi })
-            else
-                null,
+            .root_module = b.createModule(.{
+                .root_source_file = .{ .cwd_relative = "src/wrapper/sdl.zig" },
+                .target = if (target.result.os.tag == .windows)
+                    b.resolveTargetQuery(.{ .abi = target.result.abi })
+                else
+                    target, //?
+            }),
         });
         lib_test.root_module.addImport("sdl-native", sdk.getNativeModule());
         lib_test.linkSystemLibrary("sdl2_image");
@@ -53,9 +55,11 @@ pub fn build(b: *std.Build) !void {
 
     const demo_wrapper = b.addExecutable(.{
         .name = "demo-wrapper",
-        .root_source_file = .{ .cwd_relative = "examples/wrapper.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = "examples/wrapper.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sdk.link(demo_wrapper, sdl_linkage, .SDL2);
     demo_wrapper.root_module.addImport("sdl2", sdk.getWrapperModule());
@@ -63,9 +67,11 @@ pub fn build(b: *std.Build) !void {
 
     const demo_wrapper_image = b.addExecutable(.{
         .name = "demo-wrapper-image",
-        .root_source_file = .{ .cwd_relative = "examples/wrapper-image.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = "examples/wrapper-image.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sdk.link(demo_wrapper_image, sdl_linkage, .SDL2);
     demo_wrapper_image.root_module.addImport("sdl2", sdk.getWrapperModule());
@@ -81,9 +87,11 @@ pub fn build(b: *std.Build) !void {
 
     const demo_native = b.addExecutable(.{
         .name = "demo-native",
-        .root_source_file = .{ .cwd_relative = "examples/native.zig" },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = "examples/native.zig" },
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     sdk.link(demo_native, sdl_linkage, .SDL2);
     demo_native.root_module.addImport("sdl2", sdk.getNativeModule());
@@ -231,10 +239,11 @@ pub fn getWrapperModuleVulkan(sdk: *Sdk, vulkan: *Build.Module) *Build.Module {
 }
 
 fn linkLinuxCross(sdk: *Sdk, exe: *Compile) !void {
-    const build_linux_sdl_stub = sdk.builder.addSharedLibrary(.{
+    const build_linux_sdl_stub = sdk.builder.addLibrary(.{
         .name = "SDL2",
-        .target = exe.root_module.resolved_target.?,
-        .optimize = exe.root_module.optimize.?,
+        .root_module = exe.root_module, // ?
+        // .target = exe.root_module.resolved_target.?,
+        // .optimize = exe.root_module.optimize.?,
     });
     build_linux_sdl_stub.addAssemblyFile(sdk.prepare_sources.getStubFile());
     exe.linkLibrary(build_linux_sdl_stub);
@@ -401,7 +410,7 @@ const GetPathsError = error{
 };
 
 fn printPathsErrorMessage(sdk: *Sdk, config_path: []const u8, target_local: std.Build.ResolvedTarget, err: GetPathsError, library: Library) !void {
-    const writer = std.io.getStdErr().writer();
+    const writer = std.fs.File.deprecatedWriter(std.fs.File.stderr());
     const target_name = try tripleName(sdk.builder.allocator, target_local);
     defer sdk.builder.allocator.free(target_name);
 
@@ -557,7 +566,7 @@ const PrepareStubSourceStep = struct {
         var file = try dirpath.dir.createFile("sdl.S", .{});
         defer file.close();
 
-        var writer = file.writer();
+        var writer = file.deprecatedWriter();
         try writer.writeAll(".text\n");
 
         var iter = std.mem.splitScalar(u8, sdl2_symbol_definitions, '\n');
@@ -624,20 +633,20 @@ const CacheBuilder = struct {
         const path = if (self.subdir) |subdir|
             try std.fmt.allocPrint(
                 self.builder.allocator,
-                "{s}/{s}/o/{}",
+                "{s}/{s}/o/{x}",
                 .{
                     self.builder.cache_root.path.?,
                     subdir,
-                    std.fmt.fmtSliceHexLower(&hash),
+                    &hash,
                 },
             )
         else
             try std.fmt.allocPrint(
                 self.builder.allocator,
-                "{s}/o/{}",
+                "{s}/o/{x}",
                 .{
                     self.builder.cache_root.path.?,
-                    std.fmt.fmtSliceHexLower(&hash),
+                    &hash,
                 },
             );
 
